@@ -1,16 +1,5 @@
-export type BatchStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-
-export type Batch = {
-  id: string;
-  status: BatchStatus;
-  totalUrls: number;
-  completedUrls: number;
-  failedUrls: number;
-  createdAt: string;
-  updatedAt: string;
-  completedAt?: string | null;
-  cancelledAt?: string | null;
-};
+import type { Batch, UrlCheck } from '@bulk-url/shared';
+export type { Batch, UrlCheck } from '@bulk-url/shared';
 
 export type BatchApiResponse<T> = { data: T };
 
@@ -50,4 +39,18 @@ export async function getBatches() {
 
 export async function getBatchById(batchId: string) {
   return apiRequest<BatchApiResponse<Batch>>(`/batches/${batchId}`);
+}
+
+export async function getBatchUrls(batchId: string) {
+  return apiRequest<BatchApiResponse<UrlCheck[]>>(`/batches/${batchId}/urls`);
+}
+
+export async function cancelBatch(batchId: string) {
+  return apiRequest<BatchApiResponse<Batch>>(`/batches/${batchId}/cancel`, { method: 'POST' });
+}
+
+export async function retryFailed(batchId: string) {
+  return apiRequest<BatchApiResponse<Batch>>(`/batches/${batchId}/retry-failed`, {
+    method: 'POST',
+  });
 }

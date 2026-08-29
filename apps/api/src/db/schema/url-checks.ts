@@ -1,4 +1,13 @@
-import { pgTable, text, timestamp, integer, uuid, pgEnum, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  timestamp,
+  integer,
+  uuid,
+  pgEnum,
+  index,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 import { batches } from './batches.js';
 
 export const urlCheckStatusEnum = pgEnum('url_check_status', [
@@ -33,3 +42,5 @@ export const urlChecks = pgTable(
     batchUrlUnique: uniqueIndex('url_checks_batch_id_url_unique').on(table.batchId, table.url),
   }),
 );
+
+export type UrlCheckRecord = typeof urlChecks.$inferSelect;

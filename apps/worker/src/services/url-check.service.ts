@@ -2,9 +2,15 @@ import { PostgresUrlCheckRepository } from '../repositories/implementations/post
 import { UrlCheckRepository } from '../repositories/interfaces/url-check.repository.js';
 
 export class UrlCheckService {
-  constructor(private readonly urlCheckRepository: UrlCheckRepository = new PostgresUrlCheckRepository()) {}
+  constructor(
+    private readonly urlCheckRepository: UrlCheckRepository = new PostgresUrlCheckRepository(),
+  ) {}
 
-  async process(input: { batchId: string; urlId: string; url: string }) {
+  async process(
+    input: { batchId: string; urlId: string; url: string },
+    attemptNumber = 1,
+    maxAttempts = 3,
+  ) {
     const startedAt = Date.now();
 
     try {
@@ -19,6 +25,10 @@ export class UrlCheckService {
 
       const status = response.ok ? 'success' : 'failed';
 
+      if (response.status >= 500 && attemptNumber < maxAttempts) {
+        throw new Error(`Transient HTTP ${response.status}`);
+      }
+
       return this.urlCheckRepository.saveResult({
         batchId: input.batchId,
         urlId: input.urlId,
@@ -28,11 +38,15 @@ export class UrlCheckService {
         responseTime,
         pageTitle,
         error: response.ok ? null : `HTTP ${response.status}`,
-        attemptCount: 1,
+        attemptCount: attemptNumber,
       });
     } catch (error) {
       const responseTime = Date.now() - startedAt;
       const message = error instanceof Error ? error.message : 'Unknown error';
+
+      if (attemptNumber < maxAttempts) {
+        throw error;
+      }
 
       return this.urlCheckRepository.saveResult({
         batchId: input.batchId,
@@ -43,7 +57,7 @@ export class UrlCheckService {
         responseTime,
         pageTitle: null,
         error: message,
-        attemptCount: 1,
+        attemptCount: attemptNumber,
       });
     }
   }

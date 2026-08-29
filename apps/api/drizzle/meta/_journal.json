@@ -8,6 +8,13 @@
       "when": 1787982263344,
       "tag": "0000_flaky_supernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788001424353,
+      "tag": "0001_steep_nightshade",
+      "breakpoints": true
     }
   ]
 }
