@@ -1,0 +1,31 @@
+{
+  "name": "bulk-url-health-checker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm -r --parallel --workspace-concurrency=1 run dev",
+    "dev:api": "pnpm --dir apps/api dev",
+    "dev:worker": "pnpm --dir apps/worker dev",
+    "dev:web": "pnpm --dir apps/web dev",
+    "build": "pnpm -r --workspace-concurrency=1 run build",
+    "lint": "pnpm -r --workspace-concurrency=1 run lint",
+    "format": "pnpm -r exec prettier --write .",
+    "typecheck": "pnpm -r --workspace-concurrency=1 run typecheck",
+    "db:generate": "pnpm --dir apps/api exec drizzle-kit generate",
+    "db:migrate": "pnpm --dir apps/api exec drizzle-kit migrate"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "devDependencies": {
+    "@eslint/js": "^8.57.1",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.2",
+    "globals": "^15.14.0",
+    "prettier": "^3.2.5",
+    "typescript-eslint": "^8.18.2"
+  }
+}
