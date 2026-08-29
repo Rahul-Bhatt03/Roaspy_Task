@@ -87,6 +87,7 @@ export default function BatchDetailPage({ params }: { params: { batchId: string 
           <div>
             <span className="eyebrow">Batch report</span>
             <h1>{batch.id}</h1>
+            <p className="lede">Individual checks, final responses, and timing.</p>
           </div>
           <Link href="/batches" className="secondary-button">
             All batches

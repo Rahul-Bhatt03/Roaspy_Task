@@ -50,8 +50,8 @@ export default function HomePage() {
       <section className="hero-card">
         <div className="hero-copy">
           <span className="eyebrow">Bulk URL Verification</span>
-          <h1>Monitor URL health at scale.</h1>
-          <p>
+          <h1>See every URL clearly.</h1>
+          <p className="lede">
             Submit a list of URLs, enqueue checks in the background, and follow each batch from a
             single dashboard.
           </p>

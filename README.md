@@ -1,6 +1,6 @@
 # Bulk URL Health Checker
 
-Bulk URL Health Checker is a TypeScript monorepo that accepts a list of URLs, stores a batch in PostgreSQL, queues one background job per URL in Redis, and records the result of each HTTP check. A Next.js web app provides the submission and batch summary screens.
+Bulk URL Health Checker is a TypeScript monorepo that accepts a list of URLs, stores a batch in PostgreSQL, queues one background job per URL in Redis, and records the result of each HTTP check. A Next.js web app provides the submission, progress, and URL-level result screens.
 
 ## System Overview
 
@@ -21,10 +21,10 @@ Runtime dependencies:
 
 1. A user enters URLs in the web app. URLs may be separated by newlines or commas.
 2. The web app sends `POST /batches` to the API.
-3. The API trims and removes blank values, inserts a `batches` row, and queues one `url-check` job per URL.
+3. The API trims, validates, and deduplicates values, inserts the batch and `url_checks` rows, and writes pending jobs to the transactional outbox before any check begins.
 4. The worker receives each job from Redis and calls the URL with `fetch`, following redirects and timing out after 15 seconds.
 5. The worker inserts or updates a `url_checks` row and recalculates the parent batch counters.
-6. The web app can read the batch summary from the API.
+6. The web app receives progress events through SSE and reads the current batch and URL results from the API.
 
 The API and worker must use the same PostgreSQL database and Redis instance. If the worker is stopped, batches remain pending or running while jobs wait in Redis. A batch accepts at most 1000 unique HTTP or HTTPS URLs.
 
@@ -95,7 +95,7 @@ Apply the current database migrations before starting the API:
 pnpm db:migrate
 ```
 
-The migration command reads `apps/api/drizzle.config.ts`, which loads the root `.env`. It creates the `batches`, `url_checks`, and enum objects when they do not already exist.
+The migration command reads `apps/api/drizzle.config.ts`, which loads the root `.env`. It creates the `batches`, `url_checks`, `job_outbox`, and enum objects when they do not already exist.
 
 Start each service in a separate terminal:
 
@@ -140,10 +140,14 @@ Stores one URL result per batch:
 - `response_time`: elapsed time in milliseconds.
 - `page_title`: extracted HTML title for responses below HTTP 400.
 - `error`: error text or an HTTP failure message.
-- `attempt_count`: starts at one and increments on a conflict update.
+- `attempt_count`: zero while pending, then records the current processing attempt.
 - `created_at`, `updated_at`, `completed_at`: timestamps.
 
 There is a unique constraint on `(batch_id, url)`, plus indexes on `batch_id` and `url`.
+
+### `job_outbox`
+
+Stores URL-check job payloads until the API publisher has safely submitted them to BullMQ. It contains the owning `batch_id`, stable `job_id`, JSON payload, publication timestamp, cancellation timestamp, and creation timestamp. A publisher runs every second and uses row locking so multiple API instances can safely share the work.
 
 ### Schema changes
 
@@ -265,11 +269,11 @@ Returns each persisted URL result, including `status`, `httpStatus`, `responseTi
 
 ### `POST /batches/:batchId/cancel`
 
-Cancels a pending or running batch, removes waiting/delayed jobs, and prevents an in-flight result from changing the cancelled batch. The operation is safe to repeat.
+Cancels a pending or running batch, removes waiting/delayed jobs, marks unfinished URL rows as `skipped`, and prevents an in-flight result from changing the cancelled batch. Send the empty JSON object `{}` with `Content-Type: application/json`. The operation is safe to repeat.
 
 ### `POST /batches/:batchId/retry-failed`
 
-Requeues only URL rows currently marked `failed`. Successful URL checks are not repeated. The operation is safe when there are no failed URLs.
+Requeues only URL rows currently marked `failed`. Successful URL checks are not repeated. Send `{}` with `Content-Type: application/json`. Cancelled batches cannot be reopened. The operation is safe when there are no failed URLs.
 
 ## Queue and Worker Behavior
 
@@ -304,7 +308,7 @@ The web app uses `NEXT_PUBLIC_API_URL` and defaults to `http://localhost:4000`.
 - `/batches/:batchId`: displays aggregate progress and every URL's status, final HTTP status, response time, page title, attempt count, and error.
 - The batch detail page includes Cancel batch and Retry failed controls.
 
-The detail page loads the persisted database snapshot first, then subscribes to Server-Sent Events. Events are published through Redis Pub/Sub, so multiple API instances can serve clients. `EventSource` reconnects after a dropped connection; its initial event reloads the current database state, making refreshes and reconnects safe.
+The visual design uses a light paper-grid workspace, editorial headings, compact status badges, clear progress bars, and responsive layouts. The detail page loads the persisted database snapshot first, then subscribes to Server-Sent Events. Events are published through Redis Pub/Sub, so multiple API instances can serve clients. `EventSource` reconnects after a dropped connection; its initial event reloads the current database state, making refreshes and reconnects safe.
 
 ## Scripts
 
@@ -390,3 +394,29 @@ Multiple API instances may serve reads and SSE connections because cache, Pub/Su
 - Authentication, authorization, notifications, and charts are intentionally out of scope.
 - CSV upload supports quoted commas and escaped quotes, but treats the first column as the URL and does not expose row-level import diagnostics.
 - The API has no authentication, authorization, or job administration UI.
+
+## Final Verification
+
+Run the following from the repository root before handoff:
+
+```powershell
+pnpm db:migrate
+pnpm typecheck
+pnpm lint
+pnpm build
+pnpm dev
+pnpm test
+```
+
+`pnpm test` requires the API, worker, Redis, and PostgreSQL to be available. It verifies API health, invalid URL rejection, batch creation, worker completion, and the persisted final HTTP status, response time, and page title.
+
+## Loom Walkthrough
+
+Record a 3–5 minute walkthrough covering:
+
+1. The API, worker, web app, PostgreSQL, Redis, and BullMQ architecture.
+2. A batch submission and the URL-level result fields.
+3. The global rate limit, concurrency limit, retries, and idempotent persistence.
+4. SSE live updates, Redis Pub/Sub, refresh safety, and horizontal API scaling.
+5. Cancellation, retry-failed, the Redis cache, and the transactional outbox.
+6. Tradeoffs: the fixed-window limiter, first-column CSV convention, and intentionally out-of-scope authentication and notifications.

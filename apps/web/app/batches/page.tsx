@@ -55,6 +55,7 @@ export default function BatchesPage() {
           <div>
             <span className="eyebrow">Queue overview</span>
             <h1>Batches</h1>
+            <p className="lede">A live record of every URL check in motion.</p>
           </div>
           <Link href="/" className="secondary-button">
             New submission
@@ -77,8 +78,8 @@ export default function BatchesPage() {
                   <span className={`status-badge ${batch.status}`}>{batch.status}</span>
                   <span>{batch.totalUrls} URLs</span>
                 </div>
-                <strong>{batch.id}</strong>
-                <small>
+                <strong className="batch-id">{batch.id}</strong>
+                <small className="batch-progress">
                   {new Date(batch.createdAt).toLocaleString()} · {batch.completedUrls}/{batch.totalUrls} complete
                 </small>
               </Link>

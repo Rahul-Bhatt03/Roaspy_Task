@@ -6,12 +6,14 @@ export type BatchApiResponse<T> = { data: T };
 export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  if (options.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers ?? {}),
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -46,11 +48,15 @@ export async function getBatchUrls(batchId: string) {
 }
 
 export async function cancelBatch(batchId: string) {
-  return apiRequest<BatchApiResponse<Batch>>(`/batches/${batchId}/cancel`, { method: 'POST' });
+  return apiRequest<BatchApiResponse<Batch>>(`/batches/${batchId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 export async function retryFailed(batchId: string) {
   return apiRequest<BatchApiResponse<Batch>>(`/batches/${batchId}/retry-failed`, {
     method: 'POST',
+    body: JSON.stringify({}),
   });
 }

@@ -118,6 +118,16 @@ export class PostgresBatchRepository implements BatchRepository {
 
   async retryFailed(id: string) {
     const retriedUrls = await db.transaction(async (tx) => {
+      const [currentBatch] = await tx
+        .select()
+        .from(batches)
+        .where(eq(batches.id, id))
+        .limit(1)
+        .execute();
+      if (!currentBatch || currentBatch.status === 'cancelled') {
+        return { batch: currentBatch ?? null, urls: [] };
+      }
+
       const failedUrls = await tx
         .select()
         .from(urlChecks)
