@@ -26,7 +26,7 @@ Runtime dependencies:
 5. The worker inserts or updates a `url_checks` row and recalculates the parent batch counters.
 6. The web app can read the batch summary from the API.
 
-The API and worker must use the same PostgreSQL database and Redis instance. If the worker is stopped, batches remain pending or running while jobs wait in Redis.
+The API and worker must use the same PostgreSQL database and Redis instance. If the worker is stopped, batches remain pending or running while jobs wait in Redis. A batch accepts at most 1000 unique HTTP or HTTPS URLs.
 
 ## Repository Layout
 
@@ -111,7 +111,7 @@ The local URLs are:
 - API: `http://localhost:4000`
 - Redis: `localhost:6379`
 
-The root `pnpm dev` command starts all workspace `dev` scripts in parallel. Redis still needs to be started separately.
+The root `pnpm dev` command starts Redis with Docker Compose and then all workspace `dev` scripts in parallel. Docker Desktop must be running.
 
 ## Database
 
@@ -162,12 +162,13 @@ The API allows CORS from any origin and returns JSON. Unexpected errors are logg
 
 ### `GET /health`
 
-Returns an API process health response. It does not actively verify PostgreSQL or Redis connectivity.
+Returns API and dependency health. It returns `200` when PostgreSQL and Redis respond, and `503` when either dependency is unavailable.
 
 ```json
 {
   "ok": true,
   "status": "healthy",
+  "dependencies": { "database": "healthy", "redis": "healthy" },
   "timestamp": "2026-08-29T00:00:00.000Z"
 }
 ```
@@ -252,13 +253,23 @@ Response shape:
 
 ### `GET /batches/:batchId`
 
-Returns one batch summary. A missing UUID or unknown batch currently results in `404` only when no matching row is found; malformed UUID errors are handled by the general `500` handler.
+Returns one batch summary. Unknown batches return `404`; malformed batch IDs return `400`.
 
 ```powershell
 Invoke-RestMethod -Uri http://localhost:4000/batches/9d5f8d5d-6d1b-4978-9bfc-4c1903f4a4df
 ```
 
-The current API has no endpoint for listing the individual `url_checks` rows. The web detail page therefore displays aggregate counters only.
+### `GET /batches/:batchId/urls`
+
+Returns each persisted URL result, including `status`, `httpStatus`, `responseTime`, `pageTitle`, `error`, and `attemptCount`. The detail UI uses this endpoint to render URL-level progress and outcomes.
+
+### `POST /batches/:batchId/cancel`
+
+Cancels a pending or running batch, removes waiting/delayed jobs, and prevents an in-flight result from changing the cancelled batch. The operation is safe to repeat.
+
+### `POST /batches/:batchId/retry-failed`
+
+Requeues only URL rows currently marked `failed`. Successful URL checks are not repeated. The operation is safe when there are no failed URLs.
 
 ## Queue and Worker Behavior
 
@@ -288,10 +299,12 @@ The worker logs readiness, errors, and completed jobs. It handles `SIGINT` and `
 The web app uses `NEXT_PUBLIC_API_URL` and defaults to `http://localhost:4000`.
 
 - `/`: submission form with example URLs; accepts newline- or comma-separated input.
+- `/`: also accepts a CSV upload; the first CSV column is treated as the URL.
 - `/batches`: creates a batch and lists existing batch summaries.
-- `/batches/:batchId`: displays status, total, completed, failed, created, and updated values.
+- `/batches/:batchId`: displays aggregate progress and every URL's status, final HTTP status, response time, page title, attempt count, and error.
+- The batch detail page includes Cancel batch and Retry failed controls.
 
-The frontend loads data once when each page mounts. It does not currently poll for progress, so refresh the page to see updated worker results.
+The detail page loads the persisted database snapshot first, then subscribes to Server-Sent Events. Events are published through Redis Pub/Sub, so multiple API instances can serve clients. `EventSource` reconnects after a dropped connection; its initial event reloads the current database state, making refreshes and reconnects safe.
 
 ## Scripts
 
@@ -307,9 +320,16 @@ Run these commands from the repository root:
 | `pnpm db:generate` | Generate SQL migrations from Drizzle schemas.               |
 | `pnpm db:migrate`  | Apply pending migrations.                                   |
 | `pnpm build`       | Build all workspace packages.                               |
+| `pnpm test`        | Run the API/worker smoke test against the running stack.    |
 | `pnpm typecheck`   | Typecheck all workspace packages.                           |
 | `pnpm lint`        | Run ESLint across workspace packages.                       |
 | `pnpm format`      | Run Prettier.                                               |
+
+`pnpm dev` starts Redis with Docker Compose and then starts the API, worker, and web app. Docker Desktop must be running. This is the one command for the complete local system:
+
+```powershell
+pnpm dev
+```
 
 Package-level `build`, `start`, `typecheck`, and API/worker `lint` scripts are also defined in the individual app `package.json` files.
 
@@ -344,26 +364,29 @@ The API and worker load `../../.env` explicitly. Keep that path behavior in mind
 
 ### A batch is failed
 
-Inspect `url_checks.error`, `http_status`, and `response_time` in PostgreSQL. HTTP status 400 or greater, DNS failures, connection failures, and 15-second timeouts are recorded as failed checks.
+Inspect `url_checks.error`, `http_status`, and `response_time` in PostgreSQL. HTTP status 400-499 is treated as a permanent failure. HTTP 5xx responses, DNS failures, connection failures, and 15-second timeouts retry up to three attempts with exponential backoff before being recorded as failed.
 
 ### Port already in use
 
 Set another `API_PORT` for the API and update `NEXT_PUBLIC_API_URL` to match. The web app normally runs on port 3000; Next.js will offer another port if 3000 is occupied.
 
-## Current Limitations
+## Design Guarantees and Tradeoffs
 
-- No authentication or authorization.
-- No URL-specific API endpoint or UI table yet.
-- No cancellation endpoint, even though `cancelled` status fields exist in the shared and database models.
-- No retry policy configured in the queue; a URL check records one attempt per worker execution.
-- `/health` is process-level health, not a dependency health check.
-- `completed_at` and `cancelled_at` are modeled but are not currently populated by the worker update query.
-  pnpm db:generate
-  pnpm db:migrate
+- PostgreSQL is the source of truth for batches and URL results. Every URL row is inserted before its BullMQ job is published.
+- URL rows use stable UUIDs as job IDs and the `(batch_id, url)` unique constraint makes result writes idempotent.
+- BullMQ uses three attempts with exponential backoff. Only transient failures are retried; the final attempt records the result and updates aggregate counters.
+- BullMQ global concurrency is set to five. A Redis atomic fixed-window limiter allows at most ten outbound checks per second across worker processes.
+- Cancellation removes waiting and delayed jobs. An already-running fetch may finish, but its database write is rejected once the batch is cancelled.
+- The batch list uses a Redis cache with a 30-second TTL. Batch creation, worker state changes, cancellation, and retry operations invalidate it, preventing stale list data after known mutations.
+- SSE was chosen over polling to reduce repeated reads. Redis Pub/Sub distributes events across API instances, while PostgreSQL snapshot reads make cold loads and reconnects correct.
+- The queue publication uses a transactional outbox and a retrying publisher, so an API crash before publication leaves jobs recoverable. A future token-bucket limiter could make traffic smoother than the current fixed-window limiter.
 
-```
+## Horizontal Scaling
 
-## Notes
+Multiple API instances may serve reads and SSE connections because cache, Pub/Sub, and queue coordination use Redis, while PostgreSQL remains authoritative. Multiple worker processes share BullMQ global concurrency and the Redis rate limiter. Running multiple independent Redis or PostgreSQL instances without replication would break these guarantees, so production deployments must use shared highly available services.
 
-This project includes the foundational API, queue infrastructure, database schema, and a functional UI flow for creating and viewing batches. The full production URL-check logic and result persistence are still being expanded beyond the baseline foundation.
-```
+## Current Scope
+
+- Authentication, authorization, notifications, and charts are intentionally out of scope.
+- CSV upload supports quoted commas and escaped quotes, but treats the first column as the URL and does not expose row-level import diagnostics.
+- The API has no authentication, authorization, or job administration UI.

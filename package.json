@@ -4,11 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "pnpm -r --parallel --workspace-concurrency=1 run dev",
+    "dev": "node scripts/dev.mjs",
     "dev:api": "pnpm --dir apps/api dev",
     "dev:worker": "pnpm --dir apps/worker dev",
     "dev:web": "pnpm --dir apps/web dev",
     "build": "pnpm -r --workspace-concurrency=1 run build",
+    "test": "node scripts/smoke-test.mjs",
     "lint": "pnpm -r --workspace-concurrency=1 run lint",
     "format": "pnpm -r exec prettier --write .",
     "typecheck": "pnpm -r --workspace-concurrency=1 run typecheck",

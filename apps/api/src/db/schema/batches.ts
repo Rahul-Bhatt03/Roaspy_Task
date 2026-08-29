@@ -19,3 +19,5 @@ export const batches = pgTable('batches', {
   completedAt: timestamp('completed_at', { withTimezone: true }),
   cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
 });
+
+export type BatchRecord = typeof batches.$inferSelect;

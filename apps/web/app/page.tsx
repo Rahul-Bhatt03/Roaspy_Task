@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { FormEvent, useState } from 'react';
 import { createBatch } from '../lib/api';
+import { parseCsvUrls } from '../lib/csv';
 
 export default function HomePage() {
   const [urls, setUrls] = useState(
@@ -10,6 +11,14 @@ export default function HomePage() {
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const addCsv = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      setUrls(parseCsvUrls(String(reader.result ?? '')).join('\n'));
+    };
+    reader.readAsText(file);
+  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -61,6 +70,13 @@ export default function HomePage() {
             onChange={(event) => setUrls(event.target.value)}
             rows={10}
             placeholder="https://example.com"
+          />
+          <label htmlFor="csv">Or upload a CSV</label>
+          <input
+            id="csv"
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(event) => event.target.files?.[0] && addCsv(event.target.files[0])}
           />
           <button type="submit" className="primary-button" disabled={isSubmitting}>
             {isSubmitting ? 'Creating batch...' : 'Run batch check'}

@@ -14,4 +14,16 @@ export class BatchService {
   async getBatchById(id: string) {
     return this.batchRepository.findById(id);
   }
+
+  async getBatchUrls(id: string) {
+    return this.batchRepository.findUrls(id);
+  }
+
+  async cancelBatch(id: string) {
+    return this.batchRepository.cancel(id);
+  }
+
+  async retryFailed(id: string) {
+    return this.batchRepository.retryFailed(id);
+  }
 }

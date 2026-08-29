@@ -2,6 +2,7 @@ import { Job, Worker } from 'bullmq';
 import { redisConnection } from '../queues/connection.js';
 import { URL_CHECK_QUEUE_NAME } from '../queues/url-check.queue.js';
 import { UrlCheckService } from '../services/url-check.service.js';
+import { waitForGlobalRateLimit } from '../queues/rate-limiter.js';
 
 export type UrlCheckJobData = {
   batchId: string;
@@ -13,9 +14,10 @@ export const createUrlCheckWorker = (urlCheckService: UrlCheckService) => {
   return new Worker<UrlCheckJobData>(
     URL_CHECK_QUEUE_NAME,
     async (job: Job<UrlCheckJobData>) => {
-      await urlCheckService.process(job.data);
+      await waitForGlobalRateLimit();
+      await urlCheckService.process(job.data, job.attemptsMade + 1, 3);
       return { ok: true, jobId: job.id };
     },
-    { connection: redisConnection },
+    { connection: redisConnection, concurrency: 5 },
   );
 };
